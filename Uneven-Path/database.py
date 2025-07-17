@@ -1,11 +1,11 @@
 import sqlite3
 
 def init_db():
-    """Initialize SQLite database with tables for players, inventory, enemies, and shop."""
+    """Инициализация базы данных SQLite с таблицами для игроков, инвентаря, врагов и магазина."""
     conn = sqlite3.connect('rpg_game.db')
     c = conn.cursor()
     
-    # Players table: stores user data
+    # Таблица игроков: хранит данные пользователя
     c.execute('''
         CREATE TABLE IF NOT EXISTS players (
             user_id INTEGER PRIMARY KEY,
@@ -17,57 +17,57 @@ def init_db():
         )
     ''')
     
-    # Inventory table: stores player items
+    # Таблица инвентаря: хранит предметы игрока
     c.execute('''
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             item_name TEXT,
-            item_type TEXT,  -- e.g., weapon, potion
-            item_value INTEGER,  -- e.g., damage for weapons, healing for potions
+            item_type TEXT,  -- например, weapon, potion
+            item_value INTEGER,  -- например, урон для оружия, лечение для зелий
             FOREIGN KEY (user_id) REFERENCES players (user_id)
         )
     ''')
     
-    # Enemies table: stores enemy data
+    # Таблица врагов: хранит данные врагов
     c.execute('''
         CREATE TABLE IF NOT EXISTS enemies (
             enemy_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
+            name TEXT UNIQUE,  -- Уникальное имя врага
             health INTEGER,
             damage INTEGER,
             defense INTEGER
         )
     ''')
-    # Insert sample enemy (Goblin)
-    c.execute('INSERT OR IGNORE INTO enemies (enemy_id, name, health, damage, defense) VALUES (?, ?, ?, ?, ?)',
-              (1, 'Goblin', 50, 8, 3))
+    # Вставка тестового врага (Гоблин), избегаем дублирования
+    c.execute('INSERT OR IGNORE INTO enemies (name, health, damage, defense) VALUES (?, ?, ?, ?)',
+              ('Goblin', 50, 8, 3))
     
-    # Shop table: stores items available for purchase
+    # Таблица магазина: хранит предметы для покупки
     c.execute('''
         CREATE TABLE IF NOT EXISTS shop (
             item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT,
+            item_name TEXT UNIQUE,  -- Уникальное имя предмета
             item_type TEXT,
             item_value INTEGER,
             price INTEGER
         )
     ''')
-    # Insert sample shop items
+    # Вставка тестовых предметов в магазин, избегаем дублирования
     c.execute('INSERT OR IGNORE INTO shop (item_name, item_type, item_value, price) VALUES (?, ?, ?, ?)',
               ('Iron Sword', 'weapon', 5, 30))
     c.execute('INSERT OR IGNORE INTO shop (item_name, item_type, item_value, price) VALUES (?, ?, ?, ?)',
               ('Health Potion', 'potion', 20, 20))
     
-    # Effects table: for future effects like buffs/debuffs
+    # Таблица эффектов: для будущих баффов/дебаффов
     c.execute('''
         CREATE TABLE IF NOT EXISTS effects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             effect_name TEXT,
-            effect_type TEXT,  -- e.g., buff, debuff
-            effect_value INTEGER,  -- e.g., +10 damage
-            duration INTEGER,  -- turns or time remaining
+            effect_type TEXT,  -- например, buff, debuff
+            effect_value INTEGER,  -- например, +10 урона
+            duration INTEGER,  -- количество ходов или времени
             FOREIGN KEY (user_id) REFERENCES players (user_id)
         )
     ''')
@@ -76,5 +76,5 @@ def init_db():
     conn.close()
 
 def get_db_connection():
-    """Return a new SQLite connection."""
+    """Возвращает новое соединение с базой данных SQLite."""
     return sqlite3.connect('rpg_game.db')

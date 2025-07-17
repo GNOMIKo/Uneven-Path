@@ -1,6 +1,7 @@
 from aiogram import types
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database import get_db_connection
+from utils import get_main_keyboard
 import logging
 
 # Настройка логирования для отладки
@@ -12,30 +13,41 @@ async def handle_shop(message: types.Message):
     user_id = message.from_user.id
     conn = get_db_connection()
     c = conn.cursor()
+    
+    # Получение золота игрока
+    c.execute('SELECT gold FROM players WHERE user_id = ?', (user_id,))
+    player = c.fetchone()
+    if not player:
+        await message.answer("Вы не зарегистрированы. Используйте /start.", reply_markup=get_main_keyboard())
+        conn.close()
+        return
+    player_gold = player[0]
+    
+    # Получение предметов магазина
     c.execute('SELECT item_id, item_name, item_type, item_value, price FROM shop')
     items = c.fetchall()
     
-    # Проверка, что предметы найдены
     if not items:
-        await message.answer("Магазин пуст! Попробуйте позже.")
+        await message.answer("🏪 Магазин пуст! Попробуйте позже.", reply_markup=get_main_keyboard())
         conn.close()
         return
     
-    # Создание инлайн-клавиатуры
-    keyboard = InlineKeyboardBuilder()
+    # Формирование текста с золотом игрока
+    shop_text = f"🏪 *Магазин* (💰 Ваше золото: {player_gold})\n\nВыберите предмет для покупки:\n"
     for item in items:
         item_id, item_name, item_type, item_value, price = item
-        keyboard.button(text=f"{item_name} ({price} золота)", callback_data=f"buy_{item_id}")
-    keyboard.adjust(1)
+        shop_text += f"- {item_name} ({item_type}, +{item_value}, {price} золота)\n"
+    
+    # Создание инлайн-клавиатуры
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    for item in items:
+        item_id, item_name, item_type, item_value, price = item
+        keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"Купить {item_name} ({price} золота)", callback_data=f"buy_{item_id}")])
     
     # Логирование для отладки
     logger.info(f"Показываю магазин для пользователя {user_id}: {len(items)} предметов")
     
-    await message.answer(
-        "🏪 *Магазин:*\nВыберите предмет для покупки:",
-        reply_markup=keyboard.as_markup(),
-        parse_mode='Markdown'
-    )
+    await message.answer(shop_text, reply_markup=keyboard, parse_mode='Markdown')
     conn.close()
 
 async def handle_buy_item(callback: types.CallbackQuery):
@@ -49,7 +61,7 @@ async def handle_buy_item(callback: types.CallbackQuery):
     c.execute('SELECT gold FROM players WHERE user_id = ?', (user_id,))
     player_gold = c.fetchone()
     if not player_gold:
-        await callback.message.answer("Вы не зарегистрированы. Используйте /start.")
+        await callback.message.answer("Вы не зарегистрированы. Используйте /start.", reply_markup=get_main_keyboard())
         conn.close()
         await callback.answer()
         return

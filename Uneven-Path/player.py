@@ -1,6 +1,7 @@
 from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database import get_db_connection
+from utils import get_main_keyboard
 import logging
 
 # Настройка логирования для отладки
@@ -40,15 +41,15 @@ async def handle_profile(message: types.Message):
     if player:
         username, health, damage, defense, gold = player
         profile_text = (
-            f"🧙‍♂️ *{username}*\n"
+            f"👤 *Профиль: {username}*\n"
             f"❤️ Здоровье: {health}\n"
             f"⚔️ Урон: {damage}\n"
             f"🛡️ Защита: {defense}\n"
             f"💰 Золото: {gold}"
         )
-        # Создание инлайн-кнопки для перехода в инвентарь
+        # Добавление кнопки "Обновить"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Открыть инвентарь", callback_data="open_inventory")]
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_profile")]
         ])
         await message.answer(
             profile_text,
@@ -59,5 +60,3 @@ async def handle_profile(message: types.Message):
     else:
         await message.answer("Вы не зарегистрированы. Используйте /start.", reply_markup=get_main_keyboard())
     conn.close()
-
-from main import get_main_keyboard

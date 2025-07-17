@@ -6,7 +6,7 @@ from config import API_TOKEN
 from player import handle_start, handle_profile
 from combat import handle_fight, handle_fight_action
 from inventory import handle_inventory, handle_use_item, handle_inventory_page
-from shop import handle_shop, handle_buy_item
+from shop import handle_shop, handle_buy
 from feedback import handle_feedback, process_feedback, FeedbackStates
 from database import init_db
 from utils import get_main_keyboard
@@ -59,7 +59,7 @@ def register_handlers():
     
     # Обработчики callback'ов для инлайн-кнопок
     dp.callback_query.register(handle_fight_action, F.data.startswith('fight_'))
-    dp.callback_query.register(handle_buy_item, F.data.startswith('buy_'))
+    dp.callback_query.register(handle_buy, F.data.startswith('buy_'))
     dp.callback_query.register(handle_use_item, F.data.startswith('use_item_'))
     dp.callback_query.register(handle_inventory_page, F.data.startswith('inv_page_'))
     dp.callback_query.register(handle_profile, F.data == 'refresh_profile')

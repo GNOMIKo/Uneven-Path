@@ -1,88 +1,106 @@
 from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database import get_db_connection
-from utils import get_main_keyboard
 import logging
 
-# Настройка логирования для отладки
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def handle_inventory(message: types.Message | types.CallbackQuery, page: int = 0):
-    """Обрабатывает команду /inventory: показывает предметы игрока с пагинацией."""
-    user_id = message.from_user.id
+async def handle_inventory(message: types.Message, page: int = 1, user_id: int = None):
+    """Обрабатывает команду /inventory: показывает инвентарь пользователя с пагинацией."""
+    # Используем user_id из аргумента, если он передан, иначе берём из message
+    user_id = user_id or message.from_user.id
+    logger.debug(f"Обработка инвентаря для user_id={user_id}, страница={page}")
+    
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('SELECT id, item_name, item_type, item_value FROM inventory WHERE user_id = ?', (user_id,))
-    items = c.fetchall()
     
-    is_callback = isinstance(message, types.CallbackQuery)
-    msg = message.message if is_callback else message
-
-    if not items:
-        if is_callback:
-            await msg.edit_text("🎒 Ваш инвентарь пуст.", reply_markup=None)
-        else:
-            await msg.answer("🎒 Ваш инвентарь пуст.", reply_markup=get_main_keyboard())
+    # Проверка существования таблицы inventory
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='inventory'")
+    if not c.fetchone():
+        logger.error("Таблица inventory не существует в базе данных")
+        await message.answer("Ошибка: база данных повреждена. Обратитесь к администратору.")
         conn.close()
         return
     
-    # Пагинация: максимум 5 предметов на страницу
+    # Получение всех предметов пользователя
+    c.execute('SELECT id, item_name, item_type, item_value FROM inventory WHERE user_id = ?', (user_id,))
+    items = c.fetchall()
+    logger.debug(f"Найдено предметов для user_id={user_id}: {[(item['id'], item['item_name'], item['item_type'], item['item_value']) for item in items]}")
+    
+    if not items:
+        await message.answer("Ваш инвентарь пуст!", reply_markup=None)
+        conn.close()
+        logger.info(f"Инвентарь пуст для user_id={user_id}")
+        return
+    
+    # Пагинация
     items_per_page = 5
     total_pages = (len(items) + items_per_page - 1) // items_per_page
-    page = max(0, min(page, total_pages - 1))  # Ограничение номера страницы
-    start_idx = page * items_per_page
+    page = max(1, min(page, total_pages))
+    start_idx = (page - 1) * items_per_page
     end_idx = start_idx + items_per_page
     current_items = items[start_idx:end_idx]
+    logger.debug(f"Отображаемые предметы: страница={page}, start_idx={start_idx}, end_idx={end_idx}, предметы={[item['item_name'] for item in current_items]}")
     
-    inventory_text = "🎒 *Инвентарь:*\n"
+    # Формирование текста инвентаря
+    inventory_text = f"*Инвентарь (страница {page}/{total_pages})*\n\n"
     for item in current_items:
-        item_id, item_name, item_type, item_value = item
-        inventory_text += f"- {item_name} ({item_type}, +{item_value})\n"
+        inventory_text += f"📦 *{item['item_name']}* ({item['item_type']}): +{item['item_value']}\n"
     
-    if total_pages > 1:
-        inventory_text += f"\n📄 Страница {page + 1} из {total_pages}"
-    
-    # Создание инлайн-кнопок для использования предметов и пагинации
+    # Создание инлайн-клавиатуры для пагинации и использования предметов
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     for item in current_items:
-        item_id, item_name, item_type, item_value = item
-        keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"Использовать {item_name}", callback_data=f"use_item_{item_id}_{page}")])
+        if item['item_type'].lower() == 'weapon':
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text=f"Использовать {item['item_name']}",
+                    callback_data=f"use_item_{item['id']}"
+                )
+            ])
+    if total_pages > 1:
+        buttons = []
+        if page > 1:
+            buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"inv_page_{page-1}_{user_id}"))
+        if page < total_pages:
+            buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"inv_page_{page+1}_{user_id}"))
+        if buttons:
+            keyboard.inline_keyboard.append(buttons)
     
-    # Кнопки пагинации
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"inv_page_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"inv_page_{page+1}"))
-    if nav_buttons:
-        keyboard.inline_keyboard.append(nav_buttons)
-    
-    # Кнопка "Обновить"
-    keyboard.inline_keyboard.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"inv_page_{page}")])
-    
-    # Проверка текущего сообщения для избежания TelegramBadRequest
-    if is_callback:
-        try:
-            current_text = msg.text or ""
-            current_reply_markup = msg.reply_markup
-            if current_text != inventory_text or current_reply_markup != keyboard:
-                await msg.edit_text(inventory_text, parse_mode='Markdown', reply_markup=keyboard)
-            else:
-                logger.debug(f"Пропуск редактирования: сообщение инвентаря не изменилось для пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Ошибка при редактировании сообщения инвентаря для {user_id}: {e}")
-            await msg.answer(inventory_text, parse_mode='Markdown', reply_markup=keyboard)
-    else:
-        await msg.answer(inventory_text, parse_mode='Markdown', reply_markup=keyboard)
-    
+    await message.answer(inventory_text, parse_mode='Markdown', reply_markup=keyboard)
+    logger.info(f"Показан инвентарь пользователю {user_id}, страница {page}")
     conn.close()
 
+async def handle_inventory_page(callback: types.CallbackQuery):
+    """Обрабатывает нажатие на кнопки пагинации инвентаря."""
+    try:
+        parts = callback.data.split('_')
+        page = int(parts[2])
+        user_id = int(parts[3])
+        logger.debug(f"Обработка пагинации: page={page}, user_id={user_id}")
+    except (IndexError, ValueError) as e:
+        logger.error(f"Ошибка парсинга callback_data для inv_page: {callback.data}, ошибка: {e}")
+        await callback.message.edit_text("Ошибка при смене страницы. Попробуйте снова.", reply_markup=None)
+        await callback.answer()
+        return
+    
+    await callback.message.delete()
+    await handle_inventory(callback.message, page=page, user_id=user_id)
+    await callback.answer()
+
 async def handle_use_item(callback: types.CallbackQuery):
-    """Обрабатывает использование предмета из инвентаря (вне боя)."""
+    """Обрабатывает использование предмета из инвентаря."""
     user_id = callback.from_user.id
-    item_id = int(callback.data.split('_')[2])
-    page = int(callback.data.split('_')[3])
+    logger.info(f"Получен callback для использования предмета пользователем {user_id}: {callback.data}")
+    
+    try:
+        item_id = int(callback.data.split('_')[-1])
+    except (IndexError, ValueError) as e:
+        logger.error(f"Ошибка парсинга callback_data для use_item: {callback.data}, ошибка: {e}")
+        await callback.message.edit_text("Ошибка. Попробуйте снова.", reply_markup=None)
+        await callback.answer()
+        return
     
     conn = get_db_connection()
     c = conn.cursor()
@@ -90,9 +108,8 @@ async def handle_use_item(callback: types.CallbackQuery):
     # Получение предмета
     c.execute('SELECT item_name, item_type, item_value FROM inventory WHERE id = ? AND user_id = ?', (item_id, user_id))
     item = c.fetchone()
-    
     if not item:
-        await callback.message.answer("Предмет не найден.", reply_markup=get_main_keyboard())
+        await callback.message.edit_text("Предмет не найден.", reply_markup=None)
         logger.error(f"Предмет с ID {item_id} не найден для пользователя {user_id}")
         conn.close()
         await callback.answer()
@@ -100,44 +117,16 @@ async def handle_use_item(callback: types.CallbackQuery):
     
     item_name, item_type, item_value = item
     
-    # Логика использования предмета
-    if item_type == 'potion':
-        # Зелье: восстанавливает здоровье
-        c.execute('SELECT health FROM players WHERE user_id = ?', (user_id,))
-        current_health = c.fetchone()[0]
-        new_health = min(current_health + item_value, 100)  # Ограничение здоровья до 100
-        c.execute('UPDATE players SET health = ? WHERE user_id = ?', (new_health, user_id))
-        c.execute('DELETE FROM inventory WHERE id = ?', (item_id,))  # Удаление использованного предмета
-        conn.commit()
-        await callback.message.answer(f"Вы использовали {item_name}! ❤️ Здоровье восстановлено до {new_health}.")
-        logger.info(f"Пользователь {user_id} использовал {item_name}, здоровье: {new_health}")
-    elif item_type == 'weapon':
-        # Оружие: увеличивает урон
+    if item_type.lower() == 'weapon':
+        # Применение оружия (увеличивает урон игрока)
         c.execute('UPDATE players SET damage = damage + ? WHERE user_id = ?', (item_value, user_id))
-        c.execute('DELETE FROM inventory WHERE id = ?', (item_id,))  # Удаление предмета после экипировки
-        conn.commit()
-        await callback.message.answer(f"Вы экипировали {item_name}! ⚔️ Урон увеличен на {item_value}.")
-        logger.info(f"Пользователь {user_id} экипировал {item_name}, урон увеличен на {item_value}")
-    elif item_type == 'buff_potion':
-        # Зелье с эффектом: добавляет временный бафф
-        effect_type = 'damage_buff' if 'Strength' in item_name else 'defense_buff'
-        c.execute('INSERT OR REPLACE INTO active_effects (user_id, effect_type, effect_value, rounds_left) VALUES (?, ?, ?, ?)',
-                  (user_id, effect_type, item_value, 3))
         c.execute('DELETE FROM inventory WHERE id = ?', (item_id,))
         conn.commit()
-        await callback.message.answer(f"Вы использовали {item_name}! 🔮 Эффект применён на 3 раунда.")
-        logger.info(f"Пользователь {user_id} использовал {item_name}, эффект: {effect_type}, значение: {item_value}")
+        await callback.message.edit_text(f"Вы экипировали {item_name}! ⚔️ Урон увеличен на {item_value}.", parse_mode='Markdown')
+        logger.info(f"Пользователь {user_id} использовал {item_name}, урон увеличен на {item_value}")
     else:
-        await callback.message.answer(f"Пока нельзя использовать предметы типа {item_type}.", reply_markup=get_main_keyboard())
-        logger.warning(f"Попытка использовать неподдерживаемый тип предмета {item_type} пользователем {user_id}")
+        await callback.message.edit_text(f"Предмет {item_name} нельзя использовать.", reply_markup=None)
+        logger.info(f"Пользователь {user_id} попытался использовать неподходящий предмет: {item_name}")
     
     conn.close()
-    # Обновление инвентаря
-    await handle_inventory(callback, page=page)
-    await callback.answer()
-
-async def handle_inventory_page(callback: types.CallbackQuery):
-    """Обрабатывает переключение страниц инвентаря."""
-    page = int(callback.data.split('_')[2])
-    await handle_inventory(callback, page=page)
     await callback.answer()

@@ -66,10 +66,12 @@ def register_handlers():
     
     # Логирование регистрации обработчиков
     logger.info("Все обработчики команд и callback'ов зарегистрированы")
+
 @dp.update()
 async def log_update(update: types.Update):
     logger.info(f"Получено обновление: {update}")
     return False
+
 async def main():
     # Инициализация базы данных
     init_db()

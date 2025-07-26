@@ -4,7 +4,7 @@ def get_main_keyboard():
     """Возвращает ReplyKeyboardMarkup с человеко-читаемыми названиями команд."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Профиль"), KeyboardButton(text="Инвентарь")],
+            [KeyboardButton(text="Профиль"), KeyboardButton(text="Зелья")],
             [KeyboardButton(text="Магазин"), KeyboardButton(text="Бой")],
             [KeyboardButton(text="Помощь")]
         ],

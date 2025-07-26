@@ -47,9 +47,12 @@ async def handle_profile(message: types.Message):
             f"🛡️ Защита: {defense}\n"
             f"💰 Золото: {gold}"
         )
-        # Добавление кнопки "Обновить"
+        # Добавление кнопок "Обновить" и "Инвентарь"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_profile")]
+            [
+                InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_profile"),
+                InlineKeyboardButton(text="🎒 Инвентарь", callback_data=f"show_inventory_{user_id}")
+            ]
         ])
         await message.answer(
             profile_text,

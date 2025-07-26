@@ -2,6 +2,7 @@ from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database import get_db_connection
 import logging
+from config import in_fight  # Импорт для проверки состояния боя
 
 # Настройка логирования для отладки
 logging.basicConfig(level=logging.INFO)
@@ -10,6 +11,10 @@ logger = logging.getLogger(__name__)
 async def handle_shop(message: types.Message):
     """Обрабатывает команду /shop: показывает товары в магазине."""
     user_id = message.from_user.id
+    if user_id in in_fight:
+        await message.answer("Вы сейчас в бою! Завершите бой перед использованием магазина.", reply_markup=None)
+        return
+    
     conn = get_db_connection()
     c = conn.cursor()
     
@@ -24,7 +29,7 @@ async def handle_shop(message: types.Message):
     # Получение товаров из магазина
     c.execute('SELECT item_id, item_name, item_type, item_value, price FROM shop')
     items = c.fetchall()
-    logger.debug(f"Товары в магазине: {[(item['item_id'], item['item_name'], item['item_type'], item['item_value'], item['price']) for item in items]}")
+    logger.debug(f"Товары в магазине: {[(item[0], item[1], item[2], item[3], item[4]) for item in items]}")
     
     if not items:
         await message.answer("Магазин пуст!", reply_markup=None)
@@ -38,15 +43,15 @@ async def handle_shop(message: types.Message):
         await message.answer("Вы не зарегистрированы. Используйте /start.", reply_markup=None)
         conn.close()
         return
-    gold = player['gold']
+    gold = player[0]  # Используем индекс 0 вместо словаря
     
     # Создание инлайн-клавиатуры
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     for item in items:
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(
-                text=f"{item['item_name']} (+{item['item_value']}) - {item['price']} золота",
-                callback_data=f"buy_{item['item_id']}"
+                text=f"{item[1]} (+{item[3]}) - {item[4]} золота",
+                callback_data=f"buy_{item[0]}"
             )
         ])
     
@@ -57,7 +62,19 @@ async def handle_shop(message: types.Message):
 async def handle_buy(callback: types.CallbackQuery):
     """Обрабатывает покупку предмета из магазина."""
     user_id = callback.from_user.id
-    item_id = int(callback.data.split('_')[1])
+    if user_id in in_fight:
+        await callback.message.edit_text("Вы сейчас в бою! Завершите бой перед покупкой.", reply_markup=None)
+        await callback.answer()
+        return
+    
+    try:
+        item_id = int(callback.data.split('_')[1])
+    except (IndexError, ValueError) as e:
+        logger.error(f"Ошибка парсинга callback_data для buy: {callback.data}, ошибка: {e}")
+        await callback.message.edit_text("Ошибка при покупке. Попробуйте снова.", reply_markup=None)
+        await callback.answer()
+        return
+    
     conn = get_db_connection()
     c = conn.cursor()
     
@@ -70,7 +87,7 @@ async def handle_buy(callback: types.CallbackQuery):
         conn.close()
         await callback.answer()
         return
-    item_name, item_type, item_value, price = item
+    item_name, item_type, item_value, price = item  # Используем распаковку кортежа
     
     # Получение золота игрока
     c.execute('SELECT gold FROM players WHERE user_id = ?', (user_id,))
@@ -80,7 +97,7 @@ async def handle_buy(callback: types.CallbackQuery):
         conn.close()
         await callback.answer()
         return
-    gold = player['gold']
+    gold = player[0]  # Используем индекс 0 вместо словаря
     
     if gold < price:
         await callback.message.edit_text(f"Недостаточно золота! Нужно: {price}, у вас: {gold}.", reply_markup=None)
@@ -99,7 +116,7 @@ async def handle_buy(callback: types.CallbackQuery):
     c.execute('SELECT id, item_name, item_type, item_value FROM inventory WHERE user_id = ? AND item_name = ?',
               (user_id, item_name))
     added_item = c.fetchone()
-    logger.debug(f"Добавлен предмет в инвентарь пользователя {user_id}: {added_item['id'], added_item['item_name'], added_item['item_type'], added_item['item_value']}")
+    logger.debug(f"Добавлен предмет в инвентарь пользователя {user_id}: {added_item[0], added_item[1], added_item[2], added_item[3]}")  # Используем индексы
     
     await callback.message.edit_text(f"Вы купили {item_name} за {price} золота!", reply_markup=None)
     logger.info(f"Пользователь {user_id} купил {item_name} за {price} золота")
